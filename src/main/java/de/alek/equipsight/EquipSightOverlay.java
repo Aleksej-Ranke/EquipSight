@@ -29,52 +29,27 @@ public class EquipSightOverlay implements HudRenderCallback {
             return;
         }
 
-        // Calculate position
-        // User asked for "Left of Hotbar" as default.
-        // The hotbar is centered. Screen width / 2.
-        // Hotbar width is roughly 182.
-        // So left of hotbar starts around (Width / 2) - 91 - (some padding).
-
         int screenWidth = context.getScaledWindowWidth();
         int screenHeight = context.getScaledWindowHeight();
 
         int startX = config.positionX;
         int startY = config.positionY;
 
-        // If using default/unconfigured values (simple heuristic), try to place it nicely if not customized.
-        // But the user can configure it. Let's interpret X and Y as absolute offsets if positive/custom.
-        // But to satisfy "Left of Hotbar" default behavior if the config is fresh/defaults:
-        // We might want to dynamically calculate the default spot if X/Y are at their "default" values.
-        // However, the config has '10' and '-1'. Let's treat these as "Use default calculation".
-
         if (startY == -1) {
-             startY = screenHeight - 22; // Just above bottom, aligned with hotbar items somewhat.
+             startY = screenHeight - 22;
         }
 
         if (config.positionX == 10) {
-            // Default default: Left of hotbar
-             startX = (screenWidth / 2) - 91 - 25; // 91 is half hotbar width. 25 is padding/slot width.
-             // Actually we are rendering multiple items. We should stack them vertically or horizontally?
-             // Usually armor HUDs are vertical or horizontal.
-             // "Left of Hotbar" usually implies a vertical column or a horizontal row.
-             // Let's assume a vertical column going up from the bottom left of the hotbar.
+             startX = (screenWidth / 2) - 91 - 25;
         }
 
         context.getMatrices().push();
 
-        // Apply scale
         context.getMatrices().scale(config.scale, config.scale, 1.0f);
 
-        // We need to adjust coordinates because of scaling
-        // logicalX = x / scale
         float scale = config.scale;
         int x = (int) (startX / scale);
         int y = (int) (startY / scale);
-
-        // Items to render: Head, Chest, Legs, Boots, MainHand, OffHand.
-        // Order: Usually Head -> Boots, then Hands.
-        // Or Boots -> Head.
-        // Let's do: Helmet, Chestplate, Leggings, Boots, Main Hand, Off Hand.
 
         List<ItemStack> items = new ArrayList<>();
         items.add(player.getEquippedStack(EquipmentSlot.HEAD));
@@ -84,24 +59,132 @@ public class EquipSightOverlay implements HudRenderCallback {
         items.add(player.getMainHandStack());
         items.add(player.getOffHandStack());
 
-        // We render them vertically growing UPWARDS from the startY?
-        // Or downwards?
-        // If "Left of Hotbar", usually it's bottom-aligned.
+        int itemSpacing = 20;
 
-        int itemSpacing = 20; // 16 px icon + 4 px padding
+        // Loop logic depends on orientation.
+        // We can iterate normally and adjust X or Y.
 
-        // Render loop
+        // If horizontal: grows to the right.
+        // If vertical: grows upwards (from bottom) or downwards?
+        // Original code was growing UPWARDS (currentY -= itemSpacing) with the loop going backwards (size-1 to 0).
+        // Let's keep consistent logic for "Start from startX/startY and grow outward".
+
+        // Wait, original loop:
+        /*
+        for (int i = items.size() - 1; i >= 0; i--) {
+             ...
+             currentY -= itemSpacing; // Go up
+        }
+        */
+        // This implies the list order was rendered bottom-to-top.
+        // List: Head, Chest, Legs, Feet, Main, Off.
+        // i=Off -> render at Y, Y becomes Y-20.
+        // i=Main -> render at Y-20...
+        // ...
+        // i=Head -> render at Top.
+        // This places Head at the top, Offhand at the bottom (anchored at startY).
+        // This matches "Left of hotbar" where it grows up.
+
+        int currentX = x;
         int currentY = y;
 
+        // Iterate backwards to keep the stack order (Head on top)
         for (int i = items.size() - 1; i >= 0; i--) {
             ItemStack stack = items.get(i);
             if (stack.isEmpty()) continue;
 
-            renderItem(context, client, stack, x, currentY, config);
-            currentY -= itemSpacing; // Go up
+            // Check durability filter
+            if (config.onlyShowDamageable && !stack.isDamageable()) {
+                continue;
+            }
+
+            renderItem(context, client, stack, currentX, currentY, config);
+
+            if (config.orientation == EquipSightConfig.Orientation.HORIZONTAL) {
+                // If horizontal, we probably want Head on the Left? or Right?
+                // If we iterate backwards (Offhand first), and we add spacing...
+                // Offhand at X, Main at X+20... Head at X+100.
+                // That puts Head on the Right.
+                // Usually Head is Left.
+                // So for Horizontal, maybe we should iterate forwards? 0 to size-1.
+                // If 0 (Head) at X. Chest at X+20...
+                // That puts Head on Left.
+
+                // Let's handle iteration order based on orientation to be safe?
+                // Or just adjust the position calculation.
+                // If we want consistent iteration (backwards for Vertical-Up), we can just subtract X for horizontal?
+                // Or maybe the user wants Head on Left.
+                // Let's stick to the current loop but change X/Y update.
+
+                // Vertical: Offhand at Bottom (Y), Head at Top.
+                // Horizontal: Offhand at Right? Head at Left?
+                // If loop is backwards: Offhand is first rendered.
+                // If we want Head Left, we need Head to be at `x`.
+                // So Offhand should be at `x + something`.
+                // This means we should start at `x + totalWidth` and subtract?
+                // Or just iterate forwards for horizontal.
+
+                // Let's iterate FORWARDS for horizontal (Head -> Offhand).
+                // But wait, the loop was `items.size() - 1` to `0` specifically to stack UP from the anchor.
+
+                // Actually, let's keep it simple.
+                // Vertical: Anchor is Bottom-Left. Grows UP. (Head is Top).
+                // Horizontal: Anchor is Bottom-Left. Grows RIGHT. (Head is Left).
+
+                // If we want Head at Top (Vertical), we need Head to have smallest Y.
+                // Anchor Y is the "Bottom". So we start at Y and subtract.
+                // So we need to render the BOTTOM item first (Offhand) at Y. Then render Main at Y-20.
+                // This matches the loop `for (int i = items.size() - 1 ...)`
+
+                // If we want Head at Left (Horizontal), we need Head to have smallest X.
+                // Anchor X is "Left".
+                // If we use the same loop (Offhand first), we would render Offhand at X. Then Main at X+20?
+                // That puts Offhand at Left. Head at Right.
+                // That might be weird. Head -> Chest -> ... -> Main -> Off usually reads Left to Right.
+
+                // So for Horizontal, we want Head rendered at X.
+                // This means we should process Head first?
+                // Or process Offhand last.
+            } else {
+                 currentY -= itemSpacing;
+            }
+        }
+
+        // Re-implementing with cleaner loop logic
+        // We want:
+        // VERTICAL: Anchor is Bottom. Head is Top. Stack grows UP.
+        // HORIZONTAL: Anchor is Left. Head is Left. Stack grows RIGHT.
+
+        if (config.orientation == EquipSightConfig.Orientation.VERTICAL) {
+            // Render Bottom-to-Top (Offhand/Feet -> Head)
+            // Loop backwards
+            for (int i = items.size() - 1; i >= 0; i--) {
+                ItemStack stack = items.get(i);
+                if (shouldSkip(stack, config)) continue;
+
+                renderItem(context, client, stack, currentX, currentY, config);
+                currentY -= itemSpacing;
+            }
+        } else {
+            // HORIZONTAL
+            // Render Left-to-Right (Head -> Offhand)
+            // Loop forwards
+            for (int i = 0; i < items.size(); i++) {
+                ItemStack stack = items.get(i);
+                if (shouldSkip(stack, config)) continue;
+
+                renderItem(context, client, stack, currentX, currentY, config);
+                currentX += itemSpacing;
+            }
         }
 
         context.getMatrices().pop();
+    }
+
+    private boolean shouldSkip(ItemStack stack, EquipSightConfig config) {
+        if (stack.isEmpty()) return true;
+        if (config.onlyShowDamageable && !stack.isDamageable()) return true;
+        return false;
     }
 
     private void renderItem(DrawContext context, MinecraftClient client, ItemStack stack, int x, int y, EquipSightConfig config) {
@@ -131,14 +214,7 @@ public class EquipSightOverlay implements HudRenderCallback {
         // Calculate Color: Green -> Yellow -> Red
         // HSB: Green is roughly 0.33 (120 deg), Red is 0.0 (0 deg).
         float hue = Math.max(0.0F, (float) remaining / (float) maxDamage) / 3.0F;
-        int color = ColorHelper.Argb.fromFloats(1.0f, hue, 1.0f, 1.0f);
-        // Actually ColorHelper.fromFloats might expect RGB.
-        // We want HSB to RGB.
         int rgb = java.awt.Color.HSBtoRGB(hue, 1.0f, 1.0f);
-
-        // Center text under the item or over it?
-        // "Unter jedem Item soll die verbleibende Haltbarkeit stehen" -> Under each item.
-        // Item is 16x16.
 
         context.getMatrices().push();
         context.getMatrices().translate(0, 0, 200); // Bring text forward
@@ -148,7 +224,6 @@ public class EquipSightOverlay implements HudRenderCallback {
 
         int textWidth = textRenderer.getWidth(text);
         // Center relative to item (which is 16px wide)
-        // scaledX = (x + 8) * (1/scale) - (textWidth / 2)
 
         int scaledX = (int) ((x + 8) / scale - textWidth / 2);
         int scaledY = (int) ((y + 16) / scale); // Below the item

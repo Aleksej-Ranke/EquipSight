@@ -5,5 +5,7 @@
   "text.autoconfig.equipsight.option.positionY": "Y Position (-1 für Auto)",
   "text.autoconfig.equipsight.option.scale": "Skalierung",
   "text.autoconfig.equipsight.option.showDurability": "Haltbarkeit anzeigen",
-  "text.autoconfig.equipsight.option.displayStyle": "Anzeigestil"
+  "text.autoconfig.equipsight.option.onlyShowDamageable": "Nur haltbare Items anzeigen",
+  "text.autoconfig.equipsight.option.displayStyle": "Anzeigestil",
+  "text.autoconfig.equipsight.option.orientation": "Ausrichtung"
 }
