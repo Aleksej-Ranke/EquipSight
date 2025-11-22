@@ -1,0 +1,9 @@
+{
+  "text.autoconfig.equipsight.title": "EquipSight Konfiguration",
+  "text.autoconfig.equipsight.option.toggleEnabled": "HUD Aktivieren",
+  "text.autoconfig.equipsight.option.positionX": "X Position",
+  "text.autoconfig.equipsight.option.positionY": "Y Position (-1 für Auto)",
+  "text.autoconfig.equipsight.option.scale": "Skalierung",
+  "text.autoconfig.equipsight.option.showDurability": "Haltbarkeit anzeigen",
+  "text.autoconfig.equipsight.option.displayStyle": "Anzeigestil"
+}
