@@ -15,7 +15,7 @@ public class EquipSightConfig implements ConfigData {
     public int positionX = 10;
 
     @ConfigEntry.Gui.Tooltip
-    public int positionY = -1; // -1 means auto-calculate relative to bottom/hotbar if we implement that logic, or just default Y.
+    public int positionY = -1; // -1 means auto-calculate relative to bottom/hotbar
 
     @ConfigEntry.Gui.Tooltip
     public float scale = 1.0f;
@@ -23,12 +23,23 @@ public class EquipSightConfig implements ConfigData {
     @ConfigEntry.Gui.Tooltip
     public boolean showDurability = true;
 
+    @ConfigEntry.Gui.Tooltip
+    public boolean onlyShowDamageable = true;
+
     @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.BUTTON)
     @ConfigEntry.Gui.Tooltip
     public DisplayStyle displayStyle = DisplayStyle.PERCENTAGE;
 
+    @ConfigEntry.Gui.EnumHandler(option = ConfigEntry.Gui.EnumHandler.EnumDisplayOption.BUTTON)
+    @ConfigEntry.Gui.Tooltip
+    public Orientation orientation = Orientation.VERTICAL;
+
     public enum DisplayStyle {
         ABSOLUTE, PERCENTAGE
+    }
+
+    public enum Orientation {
+        VERTICAL, HORIZONTAL
     }
 
     public static EquipSightConfig get() {
