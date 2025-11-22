@@ -10,6 +10,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.ColorHelper;
 
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,21 +36,21 @@ public class EquipSightOverlay implements HudRenderCallback {
         int startX = config.positionX;
         int startY = config.positionY;
 
+        float scale = config.scale;
+
+        // Default positioning logic
+        // Calculate defaults in absolute screen coordinates
         if (startY == -1) {
+             // Align to bottom, just above hotbar if possible.
+             // Hotbar is 22px high.
+             // If scaling is applied, we want the BOTTOM of the lowest item to be at screenHeight - 22.
              startY = screenHeight - 22;
         }
 
         if (config.positionX == 10) {
+             // Default: Left of hotbar
              startX = (screenWidth / 2) - 91 - 25;
         }
-
-        context.getMatrices().push();
-
-        context.getMatrices().scale(config.scale, config.scale, 1.0f);
-
-        float scale = config.scale;
-        int x = (int) (startX / scale);
-        int y = (int) (startY / scale);
 
         List<ItemStack> items = new ArrayList<>();
         items.add(player.getEquippedStack(EquipmentSlot.HEAD));
@@ -59,126 +60,58 @@ public class EquipSightOverlay implements HudRenderCallback {
         items.add(player.getMainHandStack());
         items.add(player.getOffHandStack());
 
-        int itemSpacing = 20;
+        // Spacing in pixels (scaled)
+        // Standard item is 16x16. Padding 4. Total 20.
+        // Since we scale the item rendering, the spacing on screen should be 20 * scale.
+        int itemSpacing = (int) (20 * scale);
 
-        // Loop logic depends on orientation.
-        // We can iterate normally and adjust X or Y.
+        // Current rendering position (Top-Left of the item slot in screen coords)
+        int currentX = startX;
+        int currentY = startY;
 
-        // If horizontal: grows to the right.
-        // If vertical: grows upwards (from bottom) or downwards?
-        // Original code was growing UPWARDS (currentY -= itemSpacing) with the loop going backwards (size-1 to 0).
-        // Let's keep consistent logic for "Start from startX/startY and grow outward".
+        // Logic:
+        // VERTICAL: Stacks UPWARDS from startY. startY is the Top-Left of the BOTTOM-most item (Offhand).
+        // So Item 0 (Head) should be highest. Item 5 (Offhand) lowest.
+        // Loop Backwards: Offhand -> Head.
+        // Render Offhand at currentY. Then currentY -= spacing.
 
-        // Wait, original loop:
-        /*
-        for (int i = items.size() - 1; i >= 0; i--) {
-             ...
-             currentY -= itemSpacing; // Go up
-        }
-        */
-        // This implies the list order was rendered bottom-to-top.
-        // List: Head, Chest, Legs, Feet, Main, Off.
-        // i=Off -> render at Y, Y becomes Y-20.
-        // i=Main -> render at Y-20...
-        // ...
-        // i=Head -> render at Top.
-        // This places Head at the top, Offhand at the bottom (anchored at startY).
-        // This matches "Left of hotbar" where it grows up.
-
-        int currentX = x;
-        int currentY = y;
-
-        // Iterate backwards to keep the stack order (Head on top)
-        for (int i = items.size() - 1; i >= 0; i--) {
-            ItemStack stack = items.get(i);
-            if (stack.isEmpty()) continue;
-
-            // Check durability filter
-            if (config.onlyShowDamageable && !stack.isDamageable()) {
-                continue;
-            }
-
-            renderItem(context, client, stack, currentX, currentY, config);
-
-            if (config.orientation == EquipSightConfig.Orientation.HORIZONTAL) {
-                // If horizontal, we probably want Head on the Left? or Right?
-                // If we iterate backwards (Offhand first), and we add spacing...
-                // Offhand at X, Main at X+20... Head at X+100.
-                // That puts Head on the Right.
-                // Usually Head is Left.
-                // So for Horizontal, maybe we should iterate forwards? 0 to size-1.
-                // If 0 (Head) at X. Chest at X+20...
-                // That puts Head on Left.
-
-                // Let's handle iteration order based on orientation to be safe?
-                // Or just adjust the position calculation.
-                // If we want consistent iteration (backwards for Vertical-Up), we can just subtract X for horizontal?
-                // Or maybe the user wants Head on Left.
-                // Let's stick to the current loop but change X/Y update.
-
-                // Vertical: Offhand at Bottom (Y), Head at Top.
-                // Horizontal: Offhand at Right? Head at Left?
-                // If loop is backwards: Offhand is first rendered.
-                // If we want Head Left, we need Head to be at `x`.
-                // So Offhand should be at `x + something`.
-                // This means we should start at `x + totalWidth` and subtract?
-                // Or just iterate forwards for horizontal.
-
-                // Let's iterate FORWARDS for horizontal (Head -> Offhand).
-                // But wait, the loop was `items.size() - 1` to `0` specifically to stack UP from the anchor.
-
-                // Actually, let's keep it simple.
-                // Vertical: Anchor is Bottom-Left. Grows UP. (Head is Top).
-                // Horizontal: Anchor is Bottom-Left. Grows RIGHT. (Head is Left).
-
-                // If we want Head at Top (Vertical), we need Head to have smallest Y.
-                // Anchor Y is the "Bottom". So we start at Y and subtract.
-                // So we need to render the BOTTOM item first (Offhand) at Y. Then render Main at Y-20.
-                // This matches the loop `for (int i = items.size() - 1 ...)`
-
-                // If we want Head at Left (Horizontal), we need Head to have smallest X.
-                // Anchor X is "Left".
-                // If we use the same loop (Offhand first), we would render Offhand at X. Then Main at X+20?
-                // That puts Offhand at Left. Head at Right.
-                // That might be weird. Head -> Chest -> ... -> Main -> Off usually reads Left to Right.
-
-                // So for Horizontal, we want Head rendered at X.
-                // This means we should process Head first?
-                // Or process Offhand last.
-            } else {
-                 currentY -= itemSpacing;
-            }
-        }
-
-        // Re-implementing with cleaner loop logic
-        // We want:
-        // VERTICAL: Anchor is Bottom. Head is Top. Stack grows UP.
-        // HORIZONTAL: Anchor is Left. Head is Left. Stack grows RIGHT.
+        // HORIZONTAL: Stacks RIGHTWARDS from startX.
+        // Head -> Offhand.
+        // Loop Forwards.
 
         if (config.orientation == EquipSightConfig.Orientation.VERTICAL) {
-            // Render Bottom-to-Top (Offhand/Feet -> Head)
-            // Loop backwards
+            // StartY is the anchor for the bottom item.
+            // If user provided custom Y, assume it's the anchor point.
+            // If default Y, it's screenHeight - 22.
+
+            // Loop backwards (Offhand first, at the bottom)
             for (int i = items.size() - 1; i >= 0; i--) {
                 ItemStack stack = items.get(i);
                 if (shouldSkip(stack, config)) continue;
 
-                renderItem(context, client, stack, currentX, currentY, config);
+                // We render at currentX, currentY.
+                // Note: RenderItem assumes (x,y) is top-left.
+                // If default startY is near bottom of screen, we render UP.
+                // BUT we must ensure currentY doesn't start too low if the item height is included.
+                // Standard item logic: render at (x,y).
+
+                // If startY = screenHeight - 22. This is the top-left of the bottom slot.
+                // The item extends to startY + 16*scale.
+
+                renderHudItem(context, client, stack, currentX, currentY, config);
                 currentY -= itemSpacing;
             }
         } else {
             // HORIZONTAL
-            // Render Left-to-Right (Head -> Offhand)
-            // Loop forwards
+            // Loop forwards (Head -> Offhand)
             for (int i = 0; i < items.size(); i++) {
                 ItemStack stack = items.get(i);
                 if (shouldSkip(stack, config)) continue;
 
-                renderItem(context, client, stack, currentX, currentY, config);
+                renderHudItem(context, client, stack, currentX, currentY, config);
                 currentX += itemSpacing;
             }
         }
-
-        context.getMatrices().pop();
     }
 
     private boolean shouldSkip(ItemStack stack, EquipSightConfig config) {
@@ -187,12 +120,24 @@ public class EquipSightOverlay implements HudRenderCallback {
         return false;
     }
 
-    private void renderItem(DrawContext context, MinecraftClient client, ItemStack stack, int x, int y, EquipSightConfig config) {
-        // Render Item
-        context.drawItem(stack, x, y);
-        // context.drawItemInSlot(client.textRenderer, stack, x, y); // This draws count/overlay too usually
+    private void renderHudItem(DrawContext context, MinecraftClient client, ItemStack stack, int x, int y, EquipSightConfig config) {
+        context.getMatrices().push();
 
-        // Render Durability if applicable
+        // Apply scale at the item position
+        // We want (x,y) to be the top-left of the item ON SCREEN.
+        // item is drawn at (0,0) in scaled space.
+        // Matrix: Translate(x, y, 0) -> Scale(s, s, 1)
+        context.getMatrices().translate(x, y, 0);
+        context.getMatrices().scale(config.scale, config.scale, 1.0f);
+
+        // Draw Item at (0,0) relative to the translated origin
+        context.drawItem(stack, 0, 0);
+        // context.drawItemInSlot(client.textRenderer, stack, 0, 0);
+
+        context.getMatrices().pop();
+
+        // Render Durability Text
+        // We render this separately to ensure crisp text (maybe different scaling)
         if (config.showDurability && stack.isDamageable()) {
             renderDurabilityText(context, client.textRenderer, stack, x, y, config);
         }
@@ -211,24 +156,80 @@ public class EquipSightOverlay implements HudRenderCallback {
             text = String.valueOf(remaining);
         }
 
-        // Calculate Color: Green -> Yellow -> Red
-        // HSB: Green is roughly 0.33 (120 deg), Red is 0.0 (0 deg).
+        // Color
         float hue = Math.max(0.0F, (float) remaining / (float) maxDamage) / 3.0F;
         int rgb = java.awt.Color.HSBtoRGB(hue, 1.0f, 1.0f);
 
-        context.getMatrices().push();
-        context.getMatrices().translate(0, 0, 200); // Bring text forward
+        // Text Rendering Logic
+        // We want small text (scale 0.5) centered below the item.
+        // Item width on screen = 16 * config.scale.
+        // Item height on screen = 16 * config.scale.
+        // Item center X = x + (8 * config.scale).
+        // Item bottom Y = y + (16 * config.scale).
 
-        float scale = 0.5f; // Small text
-        context.getMatrices().scale(scale, scale, 1.0f);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, 200); // Z-index above item
+
+        float textScale = 0.5f * config.scale; // Keep text proportional to item scale?
+        // Or fixed scale 0.5? Usually people want text to scale with the HUD.
+        // Let's use 0.5 * config.scale.
+
+        // If we scale the matrix, we lose pixel alignment.
+        // To get crisp text, we should try to keep scale at 1.0 or integer factors if possible,
+        // but user requested scaling.
+        // The fuzziness in the screenshot comes from non-integer alignment + shadows.
+
+        // Let's try to align the starting position to integer pixels.
+
+        context.getMatrices().translate(x, y, 0); // Move to item top-left
+        context.getMatrices().scale(textScale, textScale, 1.0f);
+
+        // Now we are in scaled space.
+        // 1 unit here = (1 / textScale) pixels on screen.
 
         int textWidth = textRenderer.getWidth(text);
-        // Center relative to item (which is 16px wide)
 
-        int scaledX = (int) ((x + 8) / scale - textWidth / 2);
-        int scaledY = (int) ((y + 16) / scale); // Below the item
+        // We want to center horizontally relative to the item (width 16 in item-space).
+        // Item width in text-space:
+        // Item width (pixels) = 16 * config.scale.
+        // Text scale = 0.5 * config.scale.
+        // Ratio = 2.
+        // So item is 32 units wide in text-space.
+        // Center is 16.
 
-        context.drawText(textRenderer, text, scaledX, scaledY, rgb, true);
+        // X position in text-space:
+        float textX = (16.0f / 0.5f) / 2.0f - (textWidth / 2.0f);
+        // (32 / 2) - width/2 = 16 - width/2.
+
+        // Y position: Below item.
+        // Item height (pixels) = 16 * config.scale.
+        // Text scale = 0.5 * config.scale.
+        // Height in text-space = 32.
+        float textY = 32.0f;
+
+        // Draw text
+        // Use main color. Disable built-in shadow to draw custom one if needed,
+        // but standard shadow usually works if scale is clean.
+        // The screenshot showed garbled text. This happens when text is drawn at non-integer coordinates with a small scale.
+
+        // Let's cast to int to snap to grid in the scaled space.
+        int drawX = (int) textX;
+        int drawY = (int) textY;
+
+        // Draw simple shadow manually for better contrast at small scales?
+        // Or just use drawText with shadow=true.
+        // Try shadow=false and manual black outline if it helps?
+        // Standard Minecraft HUDs often use shadow=true.
+        // But at 0.5 scale, the shadow offset (1px) becomes 0.5px on screen, which looks blurry.
+
+        // Solution: Draw text at scale 1.0 (screen pixels) but calculating position manually?
+        // No, font is bitmap. Scaling down looks bad if not carefully done.
+        // But user wants "Scale" config.
+
+        // If we render at 0.5 scale, we should ensure the screen coordinates align.
+        // (x + drawX * textScale) should be integer.
+
+        context.drawText(textRenderer, text, drawX, drawY, rgb, true);
 
         context.getMatrices().pop();
     }
